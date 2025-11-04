@@ -24,10 +24,45 @@ This guide will help you set up Supabase for the CFMS project.
 
 ## Step 3: Create Environment File
 
-1. Copy `.env.example` to `.env`:
-   ```bash
-   cp .env.example .env
-   ```
+### What is an Environment File?
+
+An environment file (`.env`) stores sensitive configuration values like API keys. It's:
+- **Not committed to Git** (already in `.gitignore`) - your credentials stay private
+- **Loaded automatically** by Vite when the app starts
+- **Used by the app** to connect to Supabase
+
+### Step 3.1: Copy the Template File
+
+The `.env.example` file is a template showing what variables you need. You need to copy it to create your actual `.env` file.
+
+**Note:** If you don't see `.env.example` in File Explorer, it might be hidden. Make sure "Show hidden files" is enabled, or use the command line method below.
+
+**On Windows (PowerShell or Command Prompt):**
+
+**Option A - PowerShell:**
+```powershell
+Copy-Item .env.example .env
+```
+
+**Option B - Command Prompt (cmd):**
+```cmd
+copy .env.example .env
+```
+
+**Option C - Manual (easiest):**
+1. Open File Explorer in your project folder
+2. Find `.env.example` file
+3. Right-click → Copy
+4. Right-click → Paste
+5. Rename the copy from `.env.example - Copy` to `.env`
+6. Remove the `.example` part if it appears
+
+**On Mac/Linux (bash):**
+```bash
+cp .env.example .env
+```
+
+### Step 3.2: Add Your Credentials
 
 2. Open `.env` and add your credentials:
    ```env

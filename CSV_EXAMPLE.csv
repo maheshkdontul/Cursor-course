@@ -1,0 +1,7 @@
+address,region,type,status,installation_date,technician_id,coordinates_lat,coordinates_lng
+"123 Main Street, Vancouver, BC",Lower Mainland,copper,active,2020-01-15,,49.2827,-123.1207
+"456 Government Way, Victoria, BC",Vancouver Island,fiber,completed,2023-06-20,,48.4284,-123.3656
+"789 Hospital Drive, Vancouver, BC",Lower Mainland,ONT,pending,,,49.2806,-123.1300
+"321 Enterprise Blvd, Kelowna, BC",Interior,copper,active,2019-03-10,,49.8880,-119.4960
+"654 Agency Street, Victoria, BC",Vancouver Island,fiber,completed,2023-08-15,,48.4284,-123.3656
+
