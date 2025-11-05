@@ -408,6 +408,57 @@ export async function fetchWorkOrders(): Promise<WorkOrder[]> {
 }
 
 /**
+ * Create a new work order
+ */
+export async function createWorkOrder(workOrder: Omit<WorkOrder, 'id'>): Promise<WorkOrder> {
+  const { data, error } = await supabase
+    .from('work_orders')
+    .insert({
+      location_id: workOrder.location_id,
+      technician_id: workOrder.technician_id,
+      status: workOrder.status,
+      start_time: workOrder.start_time || null,
+      end_time: workOrder.end_time || null,
+    })
+    .select()
+    .single()
+
+  if (error) {
+    throw handleApiError(error, 'createWorkOrder')
+  }
+
+  if (!data) {
+    throw new ApiError('No data returned from create work order operation')
+  }
+
+  return {
+    id: data.id,
+    location_id: data.location_id,
+    technician_id: data.technician_id,
+    status: data.status as WorkOrderStatus,
+    start_time: data.start_time || undefined,
+    end_time: data.end_time || undefined,
+  }
+}
+
+/**
+ * Update technician assignment for a work order
+ */
+export async function assignTechnicianToWorkOrder(
+  workOrderId: string,
+  technicianId: string
+): Promise<void> {
+  const { error } = await supabase
+    .from('work_orders')
+    .update({ technician_id: technicianId })
+    .eq('id', workOrderId)
+
+  if (error) {
+    throw handleApiError(error, 'assignTechnicianToWorkOrder')
+  }
+}
+
+/**
  * Update work order status
  */
 export async function updateWorkOrderStatus(

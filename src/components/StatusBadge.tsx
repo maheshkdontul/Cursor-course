@@ -3,15 +3,15 @@
  * Reusable status badge with color coding
  */
 
-import type { AssetStatus, FiberStatus, WaveProgressStatus } from '../types'
+import type { AssetStatus, FiberStatus, WaveProgressStatus, ConsentStatus, WorkOrderStatus } from '../types'
 
-type StatusType = AssetStatus | FiberStatus | WaveProgressStatus | string
+type StatusType = AssetStatus | FiberStatus | WaveProgressStatus | ConsentStatus | WorkOrderStatus | string
 
 interface StatusBadgeProps {
   /** Status value to display */
   status: StatusType
   /** Status type determines color scheme */
-  type?: 'asset' | 'fiber' | 'wave'
+  type?: 'asset' | 'fiber' | 'wave' | 'consent' | 'workorder'
 }
 
 /**
@@ -59,6 +59,36 @@ function getStatusClasses(status: StatusType, type: StatusBadgeProps['type'] = '
         return 'bg-gray-100 text-gray-800'
       case 'On Hold':
         return 'bg-yellow-100 text-yellow-800'
+      default:
+        return 'bg-gray-100 text-gray-800'
+    }
+  }
+
+  // Consent status colors
+  if (type === 'consent') {
+    switch (status) {
+      case 'Consented':
+        return 'bg-green-100 text-green-800'
+      case 'Pending':
+        return 'bg-yellow-100 text-yellow-800'
+      case 'Declined':
+        return 'bg-red-100 text-red-800'
+      default:
+        return 'bg-gray-100 text-gray-800'
+    }
+  }
+
+  // Work order status colors
+  if (type === 'workorder') {
+    switch (status) {
+      case 'Completed':
+        return 'bg-green-100 text-green-800'
+      case 'In Progress':
+        return 'bg-blue-100 text-blue-800'
+      case 'Assigned':
+        return 'bg-yellow-100 text-yellow-800'
+      case 'Failed':
+        return 'bg-red-100 text-red-800'
       default:
         return 'bg-gray-100 text-gray-800'
     }
