@@ -1,115 +1,87 @@
-// Import React for JSX and hooks for component state and effects
-import { useState, useEffect } from 'react'
-// Import Supabase API functions
+/**
+ * Dashboard Component
+ * Main overview page with KPIs from Supabase
+ */
+
+import { useMemo } from 'react'
+import { useDataFetching } from '../hooks/useDataFetching'
 import { fetchAssets, fetchLocations, fetchWaves, fetchWorkOrders } from '../services/api'
-// Import types
 import type { Asset, Location, Wave, WorkOrder } from '../types'
-// Import connection test component (optional - remove after testing)
-import { TestConnection } from '../utils/testConnection'
+import LoadingSpinner from '../components/LoadingSpinner'
+import ErrorMessage from '../components/ErrorMessage'
+import StatusBadge from '../components/StatusBadge'
 
-// Dashboard component - main overview page with KPIs from Supabase
 function Dashboard() {
-  // State to store data from Supabase
-  const [assets, setAssets] = useState<Asset[]>([])
-  const [locations, setLocations] = useState<Location[]>([])
-  const [waves, setWaves] = useState<Wave[]>([])
-  const [workOrders, setWorkOrders] = useState<WorkOrder[]>([])
+  // Fetch all data using custom hook
+  const assetsData = useDataFetching<Asset>({ fetchFn: fetchAssets })
+  const locationsData = useDataFetching<Location>({ fetchFn: fetchLocations })
+  const wavesData = useDataFetching<Wave>({ fetchFn: fetchWaves })
+  const workOrdersData = useDataFetching<WorkOrder>({ fetchFn: fetchWorkOrders })
 
-  // Loading and error states
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  // Determine loading state (any data still loading)
+  const loading = assetsData.loading || locationsData.loading || wavesData.loading || workOrdersData.loading
 
-  // Fetch data from Supabase on component mount
-  useEffect(() => {
-    async function loadData() {
-      try {
-        setLoading(true)
-        setError(null)
-        
-        // Fetch all data in parallel for better performance
-        const [assetsData, locationsData, wavesData, workOrdersData] = await Promise.all([
-          fetchAssets(),
-          fetchLocations(),
-          fetchWaves(),
-          fetchWorkOrders(),
-        ])
-        
-        setAssets(assetsData)
-        setLocations(locationsData)
-        setWaves(wavesData)
-        setWorkOrders(workOrdersData)
-      } catch (err: any) {
-        console.error('Error loading dashboard data:', err)
-        setError(err.message || 'Failed to load dashboard data')
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    loadData()
-  }, [])
+  // Get first error (if any)
+  const error = assetsData.error || locationsData.error || locationsData.error || workOrdersData.error
 
   // Calculate KPIs from data
-  // Assets with completed status
-  const completedMigrations = assets.filter(a => a.status === 'completed').length
-  // Work orders in progress
-  const inProgress = workOrders.filter(wo => wo.status === 'In Progress').length
-  // Failed work orders
-  const failedInstalls = workOrders.filter(wo => wo.status === 'Failed').length
-  
-  // Calculate average time per install
-  const completedWorkOrders = workOrders.filter(wo => wo.status === 'Completed' && wo.start_time && wo.end_time)
-  let averageTimePerInstall = 'N/A'
-  if (completedWorkOrders.length > 0) {
+  const completedMigrations = useMemo(
+    () => assetsData.data.filter((a) => a.status === 'completed').length,
+    [assetsData.data]
+  )
+
+  const inProgress = useMemo(
+    () => workOrdersData.data.filter((wo) => wo.status === 'In Progress').length,
+    [workOrdersData.data]
+  )
+
+  const failedInstalls = useMemo(
+    () => workOrdersData.data.filter((wo) => wo.status === 'Failed').length,
+    [workOrdersData.data]
+  )
+
+  const averageTimePerInstall = useMemo(() => {
+    const completedWorkOrders = workOrdersData.data.filter(
+      (wo) => wo.status === 'Completed' && wo.start_time && wo.end_time
+    )
+
+    if (completedWorkOrders.length === 0) {
+      return 'N/A'
+    }
+
     const totalTime = completedWorkOrders.reduce((sum, wo) => {
       const start = new Date(wo.start_time!).getTime()
       const end = new Date(wo.end_time!).getTime()
       return sum + (end - start)
     }, 0)
+
     const avgMs = totalTime / completedWorkOrders.length
     const avgHours = avgMs / (1000 * 60 * 60)
-    averageTimePerInstall = `${avgHours.toFixed(1)} hours`
-  }
+    return `${avgHours.toFixed(1)} hours`
+  }, [workOrdersData.data])
 
   // Loading state
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading dashboard data...</p>
-        </div>
-      </div>
-    )
+    return <LoadingSpinner message="Loading dashboard data..." />
   }
 
   return (
     <div className="space-y-6">
       {/* Page title */}
       <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
-      
-      {/* Supabase Connection Test - Remove this after verifying connection works */}
-      <TestConnection />
 
       {/* Error message */}
-      {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-          <p className="text-red-800 text-sm">{error}</p>
-        </div>
-      )}
-      
+      {error && <ErrorMessage message={error} onDismiss={assetsData.clearError} />}
+
       {/* KPI Cards Section */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Total Migrations Completed Card */}
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between">
             <div>
-              {/* KPI label */}
               <p className="text-sm font-medium text-gray-600">Completed Migrations</p>
-              {/* KPI value - large number */}
               <p className="text-3xl font-bold text-primary-700 mt-2">{completedMigrations}</p>
             </div>
-            {/* Icon */}
             <div className="text-4xl">✅</div>
           </div>
         </div>
@@ -151,26 +123,22 @@ function Dashboard() {
       {/* Waves Progress Section */}
       <div className="bg-white rounded-lg shadow p-6">
         <h2 className="text-xl font-semibold text-gray-900 mb-4">Migration Waves Progress</h2>
-        {waves.length === 0 ? (
+        {wavesData.data.length === 0 ? (
           <p className="text-gray-500">No waves found. Create waves in the Waves Management page.</p>
         ) : (
           <div className="space-y-4">
-            {/* Map through waves to show progress bars */}
-            {waves.map((wave) => (
+            {wavesData.data.map((wave) => (
               <div key={wave.id} className="space-y-2">
-                {/* Wave name and percentage */}
                 <div className="flex justify-between items-center">
                   <span className="font-medium text-gray-700">{wave.name}</span>
                   <span className="text-sm text-gray-600">{wave.progress_percentage}%</span>
                 </div>
-                {/* Progress bar */}
                 <div className="w-full bg-gray-200 rounded-full h-2.5">
                   <div
                     className="bg-primary-600 h-2.5 rounded-full transition-all"
                     style={{ width: `${wave.progress_percentage}%` }}
                   />
                 </div>
-                {/* Wave dates */}
                 <p className="text-xs text-gray-500">
                   {wave.start_date} to {wave.end_date}
                 </p>
@@ -183,7 +151,7 @@ function Dashboard() {
       {/* Recent Activity Section */}
       <div className="bg-white rounded-lg shadow p-6">
         <h2 className="text-xl font-semibold text-gray-900 mb-4">Recent Locations</h2>
-        {locations.length === 0 ? (
+        {locationsData.data.length === 0 ? (
           <p className="text-gray-500">No locations found. Upload CSV data in Assets & Locations page.</p>
         ) : (
           <div className="overflow-x-auto">
@@ -202,28 +170,12 @@ function Dashboard() {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {/* Map through locations to display rows */}
-                {locations.slice(0, 5).map((location) => (
+                {locationsData.data.slice(0, 5).map((location) => (
                   <tr key={location.id}>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {location.address}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {location.region}
-                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{location.address}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{location.region}</td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      {/* Color-coded status badge */}
-                      <span
-                        className={`px-2 py-1 text-xs font-semibold rounded-full ${
-                          location.fiber_status === 'Fiber Ready'
-                            ? 'bg-green-100 text-green-800'
-                            : location.fiber_status === 'Pending Feasibility'
-                            ? 'bg-yellow-100 text-yellow-800'
-                            : 'bg-red-100 text-red-800'
-                        }`}
-                      >
-                        {location.fiber_status}
-                      </span>
+                      <StatusBadge status={location.fiber_status} type="fiber" />
                     </td>
                   </tr>
                 ))}

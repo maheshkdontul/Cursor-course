@@ -1,71 +1,44 @@
-// Import React for JSX and hooks for component state and effects
-import { useState, useEffect } from 'react'
-// Import Supabase API functions
-import { fetchWaves, fetchLocations, createWave, updateWaveProgress } from '../services/api'
-// Import types
-import type { Wave, Location, Region, CustomerCohort } from '../types'
+/**
+ * WavesManagement Component
+ * Create and monitor migration waves with Supabase integration
+ */
 
-// WavesManagement component - create and monitor migration waves with Supabase integration
+import { useState, useMemo } from 'react'
+import { useDataFetching } from '../hooks/useDataFetching'
+import { useAsyncOperation } from '../hooks/useAsyncOperation'
+import { fetchWaves, fetchLocations, createWave, updateWaveProgress } from '../services/api'
+import { getErrorMessage } from '../utils/errorHandler'
+import { DEFAULT_REGION, DEFAULT_CUSTOMER_COHORT } from '../utils/constants'
+import type { Wave, Location, Region, CustomerCohort } from '../types'
+import LoadingSpinner from '../components/LoadingSpinner'
+import ErrorMessage from '../components/ErrorMessage'
+import StatusBadge from '../components/StatusBadge'
+import Notification, { useNotification } from '../components/Notification'
+
 function WavesManagement() {
-  // State to store waves from Supabase
-  const [waves, setWaves] = useState<Wave[]>([])
-  const [locations, setLocations] = useState<Location[]>([])
-  
-  // Loading and error states
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  
+  // Fetch data using custom hooks
+  const wavesData = useDataFetching<Wave>({ fetchFn: fetchWaves })
+  const locationsData = useDataFetching<Location>({ fetchFn: fetchLocations })
+
+  // Notification system
+  const { notification, showNotification, dismissNotification } = useNotification()
+
   // State for modal (wave creation form)
   const [showModal, setShowModal] = useState(false)
-  
+
   // State for form inputs
   const [formData, setFormData] = useState({
     name: '',
     start_date: '',
     end_date: '',
-    region: 'Lower Mainland' as Region,
-    customer_cohort: 'Hospitals' as CustomerCohort,
+    region: DEFAULT_REGION as Region,
+    customer_cohort: DEFAULT_CUSTOMER_COHORT as CustomerCohort,
   })
 
-  // Fetch data from Supabase on component mount
-  useEffect(() => {
-    async function loadData() {
-      try {
-        setLoading(true)
-        setError(null)
-        
-        const [wavesData, locationsData] = await Promise.all([
-          fetchWaves(),
-          fetchLocations(),
-        ])
-        
-        setWaves(wavesData)
-        setLocations(locationsData)
-      } catch (err: any) {
-        console.error('Error loading data:', err)
-        setError(err.message || 'Failed to load data')
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    loadData()
-  }, [])
-
-  // Handle form input change
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    const { name, value } = e.target
-    // Update form data state
-    setFormData(prev => ({ ...prev, [name]: value }))
-  }
-
-  // Handle wave creation - saves to Supabase
-  const handleCreateWave = async (e: React.FormEvent) => {
-    e.preventDefault()
-    
-    try {
-      // Create new wave in Supabase
-      const newWave = await createWave({
+  // Async operation for wave creation
+  const createWaveOperation = useAsyncOperation({
+    operationFn: async () => {
+      return await createWave({
         name: formData.name,
         start_date: formData.start_date,
         end_date: formData.end_date,
@@ -73,28 +46,35 @@ function WavesManagement() {
         customer_cohort: formData.customer_cohort,
         progress_status: 'Planning',
       })
-      
-      if (newWave) {
-        // Add to local state
-        setWaves([...waves, newWave])
-        
-        // Reset form and close modal
-        setFormData({
-          name: '',
-          start_date: '',
-          end_date: '',
-          region: 'Lower Mainland',
-          customer_cohort: 'Hospitals',
-        })
-        setShowModal(false)
-        setError(null)
-      } else {
-        setError('Failed to create wave. Please try again.')
-      }
-    } catch (err: any) {
-      console.error('Error creating wave:', err)
-      setError(err.message || 'Failed to create wave')
-    }
+    },
+    onSuccess: () => {
+      showNotification('Wave created successfully', 'success')
+      // Reset form and close modal
+      setFormData({
+        name: '',
+        start_date: '',
+        end_date: '',
+        region: DEFAULT_REGION as Region,
+        customer_cohort: DEFAULT_CUSTOMER_COHORT as CustomerCohort,
+      })
+      setShowModal(false)
+      wavesData.refetch()
+    },
+    onError: (error) => {
+      showNotification(`Failed to create wave: ${error}`, 'error')
+    },
+  })
+
+  // Handle form input change
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const { name, value } = e.target
+    setFormData((prev) => ({ ...prev, [name]: value }))
+  }
+
+  // Handle wave creation - saves to Supabase
+  const handleCreateWave = async (e: React.FormEvent) => {
+    e.preventDefault()
+    await createWaveOperation.execute()
   }
 
   // Refresh wave progress when needed
@@ -102,62 +82,64 @@ function WavesManagement() {
     try {
       const progress = await updateWaveProgress(waveId)
       // Update local state
-      setWaves(waves.map(wave => 
-        wave.id === waveId 
-          ? { ...wave, progress_percentage: progress }
-          : wave
-      ))
-    } catch (err) {
-      console.error('Error updating wave progress:', err)
+      wavesData.refetch()
+      showNotification('Wave progress refreshed', 'success')
+    } catch (error) {
+      const errorMessage = getErrorMessage(error)
+      showNotification(`Failed to refresh progress: ${errorMessage}`, 'error')
     }
   }
 
   // Loading state
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading waves...</p>
-        </div>
-      </div>
-    )
+  if (wavesData.loading || locationsData.loading) {
+    return <LoadingSpinner message="Loading waves..." />
   }
 
   return (
     <div className="space-y-6">
+      {/* Notification */}
+      {notification && (
+        <Notification
+          message={notification.message}
+          type={notification.type}
+          onDismiss={dismissNotification}
+        />
+      )}
+
       {/* Page title and create button */}
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold text-gray-900">Waves Management</h1>
-        
+
         {/* Button to open wave creation modal */}
-        <button
-          onClick={() => setShowModal(true)}
-          className="btn-primary"
-        >
+        <button onClick={() => setShowModal(true)} className="btn-primary">
           Create New Wave
         </button>
       </div>
 
       {/* Error message */}
-      {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-          <p className="text-red-800 text-sm">{error}</p>
-        </div>
+      {(wavesData.error || locationsData.error) && (
+        <ErrorMessage
+          message={wavesData.error || locationsData.error || ''}
+          onDismiss={() => {
+            wavesData.clearError()
+            locationsData.clearError()
+          }}
+        />
       )}
 
       {/* Waves List */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Map through waves to show cards */}
-        {waves.length === 0 ? (
+        {wavesData.data.length === 0 ? (
           <div className="col-span-2 bg-white rounded-lg shadow p-8 text-center">
             <p className="text-gray-500">No waves found. Create your first migration wave to get started.</p>
           </div>
         ) : (
-          waves.map((wave) => {
+          wavesData.data.map((wave) => {
             // Count locations assigned to this wave
-            const assignedLocations = locations.filter(loc => loc.wave_id === wave.id).length
-            
+            const assignedLocations = locationsData.data.filter(
+              (loc) => loc.wave_id === wave.id
+            ).length
+
             return (
               <div key={wave.id} className="bg-white rounded-lg shadow p-6">
                 {/* Wave header */}
@@ -169,17 +151,7 @@ function WavesManagement() {
                     </p>
                   </div>
                   {/* Status badge */}
-                  <span
-                    className={`px-3 py-1 text-xs font-semibold rounded-full ${
-                      wave.progress_status === 'Completed'
-                        ? 'bg-green-100 text-green-800'
-                        : wave.progress_status === 'In Progress'
-                        ? 'bg-blue-100 text-blue-800'
-                        : 'bg-gray-100 text-gray-800'
-                    }`}
-                  >
-                    {wave.progress_status}
-                  </span>
+                  <StatusBadge status={wave.progress_status} type="wave" />
                 </div>
 
                 {/* Wave details */}
@@ -232,7 +204,7 @@ function WavesManagement() {
               <button
                 onClick={() => {
                   setShowModal(false)
-                  setError(null)
+                  wavesData.clearError()
                 }}
                 className="text-gray-400 hover:text-gray-600"
               >
@@ -244,9 +216,7 @@ function WavesManagement() {
             <form onSubmit={handleCreateWave} className="space-y-4">
               {/* Wave name input */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Wave Name
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Wave Name</label>
                 <input
                   type="text"
                   name="name"
@@ -260,9 +230,7 @@ function WavesManagement() {
 
               {/* Start date input */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Start Date
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Start Date</label>
                 <input
                   type="date"
                   name="start_date"
@@ -275,9 +243,7 @@ function WavesManagement() {
 
               {/* End date input */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  End Date
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">End Date</label>
                 <input
                   type="date"
                   name="end_date"
@@ -290,9 +256,7 @@ function WavesManagement() {
 
               {/* Region dropdown */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Region
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Region</label>
                 <select
                   name="region"
                   value={formData.region}
@@ -330,14 +294,15 @@ function WavesManagement() {
                 <button
                   type="submit"
                   className="flex-1 btn-primary"
+                  disabled={createWaveOperation.loading}
                 >
-                  Create Wave
+                  {createWaveOperation.loading ? 'Creating...' : 'Create Wave'}
                 </button>
                 <button
                   type="button"
                   onClick={() => {
                     setShowModal(false)
-                    setError(null)
+                    wavesData.clearError()
                   }}
                   className="flex-1 btn-secondary"
                 >

@@ -2,6 +2,7 @@
 // Handles parsing CSV files and converting to asset/location data
 
 import type { Asset, Location } from '../types'
+import { VALID_REGIONS, VALID_ASSET_TYPES, VALID_ASSET_STATUSES, DATE_FORMAT_REGEX } from './constants'
 
 /**
  * CSV row structure expected for asset upload
@@ -46,7 +47,7 @@ export function parseCSV(csvText: string): CSVRow[] {
     }
 
     // Create object from headers and values
-    const row: any = {}
+    const row: Record<string, string> = {}
     headers.forEach((header, index) => {
       row[header] = values[index]?.trim().replace(/"/g, '') || ''
     })
@@ -102,34 +103,30 @@ export function validateCSVRow(row: CSVRow, rowNumber: number): { valid: boolean
   if (!row.region || row.region.trim().length === 0) {
     errors.push(`Row ${rowNumber}: Missing region`)
   } else {
-    const validRegions = ['Vancouver Island', 'Lower Mainland', 'Interior', 'North']
-    if (!validRegions.includes(row.region.trim())) {
-      errors.push(`Row ${rowNumber}: Invalid region "${row.region}". Must be one of: ${validRegions.join(', ')}`)
+    if (!VALID_REGIONS.includes(row.region.trim() as typeof VALID_REGIONS[number])) {
+      errors.push(`Row ${rowNumber}: Invalid region "${row.region}". Must be one of: ${VALID_REGIONS.join(', ')}`)
     }
   }
 
   if (!row.type || row.type.trim().length === 0) {
     errors.push(`Row ${rowNumber}: Missing asset type`)
   } else {
-    const validTypes = ['copper', 'fiber', 'ONT']
-    if (!validTypes.includes(row.type.trim().toLowerCase())) {
-      errors.push(`Row ${rowNumber}: Invalid asset type "${row.type}". Must be one of: ${validTypes.join(', ')}`)
+    if (!VALID_ASSET_TYPES.includes(row.type.trim().toLowerCase() as typeof VALID_ASSET_TYPES[number])) {
+      errors.push(`Row ${rowNumber}: Invalid asset type "${row.type}". Must be one of: ${VALID_ASSET_TYPES.join(', ')}`)
     }
   }
 
   if (!row.status || row.status.trim().length === 0) {
     errors.push(`Row ${rowNumber}: Missing status`)
   } else {
-    const validStatuses = ['active', 'pending', 'completed', 'failed']
-    if (!validStatuses.includes(row.status.trim().toLowerCase())) {
-      errors.push(`Row ${rowNumber}: Invalid status "${row.status}". Must be one of: ${validStatuses.join(', ')}`)
+    if (!VALID_ASSET_STATUSES.includes(row.status.trim().toLowerCase() as typeof VALID_ASSET_STATUSES[number])) {
+      errors.push(`Row ${rowNumber}: Invalid status "${row.status}". Must be one of: ${VALID_ASSET_STATUSES.join(', ')}`)
     }
   }
 
   // Validate date format if provided
   if (row.installation_date && row.installation_date.trim().length > 0) {
-    const dateRegex = /^\d{4}-\d{2}-\d{2}$/
-    if (!dateRegex.test(row.installation_date.trim())) {
+    if (!DATE_FORMAT_REGEX.test(row.installation_date.trim())) {
       errors.push(`Row ${rowNumber}: Invalid date format "${row.installation_date}". Use YYYY-MM-DD format`)
     }
   }

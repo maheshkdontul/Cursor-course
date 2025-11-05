@@ -1,75 +1,58 @@
-// Import React for JSX and hooks for component state and effects
-import { useState, useEffect } from 'react'
-// Import Supabase API functions
-import { fetchAssets, fetchLocations, bulkCreateAssets, createLocation } from '../services/api'
-// Import CSV parsing utilities
-import { parseCSV, convertCSVToData } from '../utils/csvParser'
-// Import types
-import type { Asset, Location } from '../types'
+/**
+ * AssetsLocations Component
+ * Manage inventory with Supabase integration and CSV upload
+ */
 
-// AssetsLocations component - manage inventory with Supabase integration
+import { useMemo, useState } from 'react'
+import { useDataFetching } from '../hooks/useDataFetching'
+import { useAsyncOperation } from '../hooks/useAsyncOperation'
+import { fetchAssets, fetchLocations, bulkCreateAssets, createLocation } from '../services/api'
+import { parseCSV, convertCSVToData } from '../utils/csvParser'
+import { getErrorMessage } from '../utils/errorHandler'
+import { FILTER_ALL, MAP_DISPLAY_LIMIT } from '../utils/constants'
+import type { Asset, Location } from '../types'
+import LoadingSpinner from '../components/LoadingSpinner'
+import ErrorMessage from '../components/ErrorMessage'
+import StatusBadge from '../components/StatusBadge'
+import Notification, { useNotification } from '../components/Notification'
+
 function AssetsLocations() {
-  // State to store data from Supabase
-  const [assets, setAssets] = useState<Asset[]>([])
-  const [locations, setLocations] = useState<Location[]>([])
-  
-  // Loading and error states
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  
+  // Fetch data using custom hooks
+  const assetsData = useDataFetching<Asset>({ fetchFn: fetchAssets })
+  const locationsData = useDataFetching<Location>({ fetchFn: fetchLocations })
+
+  // Notification system
+  const { notification, showNotification, dismissNotification } = useNotification()
+
   // State for CSV upload
   const [uploading, setUploading] = useState(false)
-  const [uploadResult, setUploadResult] = useState<{ success: number; failed: number; errors: string[] } | null>(null)
-  
+  const [uploadResult, setUploadResult] = useState<{
+    success: number
+    failed: number
+    errors: string[]
+  } | null>(null)
+
   // State for filters
-  const [selectedRegion, setSelectedRegion] = useState<string>('All')
-  const [selectedType, setSelectedType] = useState<string>('All')
-  const [selectedStatus, setSelectedStatus] = useState<string>('All')
-
-  // Fetch data from Supabase on component mount
-  useEffect(() => {
-    async function loadData() {
-      try {
-        setLoading(true)
-        setError(null)
-        
-        // Fetch both assets and locations in parallel
-        const [assetsData, locationsData] = await Promise.all([
-          fetchAssets(),
-          fetchLocations(),
-        ])
-        
-        setAssets(assetsData)
-        setLocations(locationsData)
-      } catch (err: any) {
-        console.error('Error loading data:', err)
-        setError(err.message || 'Failed to load data')
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    loadData()
-  }, []) // Empty dependency array - only run on mount
+  const [selectedRegion, setSelectedRegion] = useState<string>(FILTER_ALL)
+  const [selectedType, setSelectedType] = useState<string>(FILTER_ALL)
+  const [selectedStatus, setSelectedStatus] = useState<string>(FILTER_ALL)
 
   // Get unique regions from locations
-  const regions = ['All', ...new Set(locations.map(loc => loc.region))]
+  const regions = useMemo(
+    () => [FILTER_ALL, ...new Set(locationsData.data.map((loc) => loc.region))],
+    [locationsData.data]
+  )
 
   // Filter assets based on selected filters
-  const filteredAssets = assets.filter((asset) => {
-    // Find location for this asset
-    const location = locations.find(loc => loc.id === asset.location_id)
-    
-    // Filter by region
-    const regionMatch = selectedRegion === 'All' || location?.region === selectedRegion
-    // Filter by asset type
-    const typeMatch = selectedType === 'All' || asset.type === selectedType
-    // Filter by status
-    const statusMatch = selectedStatus === 'All' || asset.status === selectedStatus
-    
-    // Asset passes if all filters match
-    return regionMatch && typeMatch && statusMatch
-  })
+  const filteredAssets = useMemo(() => {
+    return assetsData.data.filter((asset) => {
+      const location = locationsData.data.find((loc) => loc.id === asset.location_id)
+      const regionMatch = selectedRegion === FILTER_ALL || location?.region === selectedRegion
+      const typeMatch = selectedType === FILTER_ALL || asset.type === selectedType
+      const statusMatch = selectedStatus === FILTER_ALL || asset.status === selectedStatus
+      return regionMatch && typeMatch && statusMatch
+    })
+  }, [assetsData.data, locationsData.data, selectedRegion, selectedType, selectedStatus])
 
   // Handle CSV file upload
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -78,36 +61,42 @@ function AssetsLocations() {
 
     // Validate file type
     if (!file.name.endsWith('.csv')) {
-      setError('Please upload a CSV file')
+      assetsData.clearError()
+      showNotification('Please upload a CSV file', 'error')
       return
     }
 
     setUploading(true)
-    setError(null)
+    assetsData.clearError()
     setUploadResult(null)
 
     try {
       // Read file content
       const fileContent = await file.text()
-      
+
       // Parse CSV
       const csvRows = parseCSV(fileContent)
-      
+
       // Convert CSV rows to Location and Asset objects
-      const { locations: newLocations, assets: newAssets, errors: validationErrors } = 
+      const { locations: newLocations, assets: newAssets, errors: validationErrors } =
         await convertCSVToData(csvRows)
 
       // Show validation errors if any
       if (validationErrors.length > 0) {
-        setError(`Validation errors found:\n${validationErrors.join('\n')}`)
+        assetsData.clearError()
+        showNotification(`Validation errors found:\n${validationErrors.slice(0, 3).join('\n')}`, 'warning')
       }
 
       // Create locations first (assets need location IDs)
       const createdLocations: Location[] = []
       for (const locationData of newLocations) {
-        const created = await createLocation(locationData)
-        if (created) {
+        try {
+          const created = await createLocation(locationData)
           createdLocations.push(created)
+        } catch (error) {
+          // Continue with other locations even if one fails
+          const errorMessage = getErrorMessage(error)
+          showNotification(`Failed to create location: ${errorMessage}`, 'error')
         }
       }
 
@@ -118,7 +107,7 @@ function AssetsLocations() {
       }))
 
       // Filter out assets without valid location IDs
-      const validAssets = assetsWithLocationIds.filter(asset => asset.location_id)
+      const validAssets = assetsWithLocationIds.filter((asset) => asset.location_id)
 
       // Bulk create assets
       const result = await bulkCreateAssets(validAssets)
@@ -127,25 +116,18 @@ function AssetsLocations() {
 
       // Refresh data if any assets were created
       if (result.success > 0) {
-        // Reload assets and locations
-        const [assetsData, locationsData] = await Promise.all([
-          fetchAssets(),
-          fetchLocations(),
-        ])
-        setAssets(assetsData)
-        setLocations(locationsData)
-      }
-
-      // Show success/error message
-      if (result.success > 0) {
-        alert(`Successfully uploaded ${result.success} assets!${result.failed > 0 ? ` (${result.failed} failed)` : ''}`)
+        await Promise.all([assetsData.refetch(), locationsData.refetch()])
+        showNotification(
+          `Successfully uploaded ${result.success} assets!${result.failed > 0 ? ` (${result.failed} failed)` : ''}`,
+          'success'
+        )
       } else {
-        alert(`Upload failed: ${result.errors.join(', ')}`)
+        showNotification(`Upload failed: ${result.errors.slice(0, 2).join(', ')}`, 'error')
       }
-    } catch (err: any) {
-      console.error('CSV upload error:', err)
-      setError(err.message || 'Failed to process CSV file')
-      alert(`Error: ${err.message || 'Failed to process CSV file'}`)
+    } catch (error) {
+      const errorMessage = getErrorMessage(error)
+      assetsData.clearError()
+      showNotification(`Error: ${errorMessage}`, 'error')
     } finally {
       setUploading(false)
       // Reset file input
@@ -154,23 +136,25 @@ function AssetsLocations() {
   }
 
   // Loading state
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading assets and locations...</p>
-        </div>
-      </div>
-    )
+  if (assetsData.loading || locationsData.loading) {
+    return <LoadingSpinner message="Loading assets and locations..." />
   }
 
   return (
     <div className="space-y-6">
+      {/* Notification */}
+      {notification && (
+        <Notification
+          message={notification.message}
+          type={notification.type}
+          onDismiss={dismissNotification}
+        />
+      )}
+
       {/* Page title and action buttons */}
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold text-gray-900">Assets & Locations</h1>
-        
+
         {/* CSV Upload Button */}
         <label className="btn-primary cursor-pointer">
           <input
@@ -185,20 +169,30 @@ function AssetsLocations() {
       </div>
 
       {/* Error message */}
-      {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-          <p className="text-red-800 text-sm whitespace-pre-line">{error}</p>
-        </div>
+      {(assetsData.error || locationsData.error) && (
+        <ErrorMessage
+          message={assetsData.error || locationsData.error || ''}
+          onDismiss={() => {
+            assetsData.clearError()
+            locationsData.clearError()
+          }}
+        />
       )}
 
       {/* Upload result */}
       {uploadResult && (
-        <div className={`rounded-lg p-4 ${
-          uploadResult.success > 0 ? 'bg-green-50 border border-green-200' : 'bg-yellow-50 border border-yellow-200'
-        }`}>
-          <p className={`font-medium ${
-            uploadResult.success > 0 ? 'text-green-800' : 'text-yellow-800'
-          }`}>
+        <div
+          className={`rounded-lg p-4 ${
+            uploadResult.success > 0
+              ? 'bg-green-50 border border-green-200'
+              : 'bg-yellow-50 border border-yellow-200'
+          }`}
+        >
+          <p
+            className={`font-medium ${
+              uploadResult.success > 0 ? 'text-green-800' : 'text-yellow-800'
+            }`}
+          >
             Upload complete: {uploadResult.success} successful, {uploadResult.failed} failed
           </p>
           {uploadResult.errors.length > 0 && (
@@ -219,9 +213,7 @@ function AssetsLocations() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {/* Region Filter */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Region
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Region</label>
             <select
               value={selectedRegion}
               onChange={(e) => setSelectedRegion(e.target.value)}
@@ -237,15 +229,13 @@ function AssetsLocations() {
 
           {/* Asset Type Filter */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Asset Type
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Asset Type</label>
             <select
               value={selectedType}
               onChange={(e) => setSelectedType(e.target.value)}
               className="w-full border border-gray-300 rounded-lg px-3 py-2"
             >
-              <option value="All">All</option>
+              <option value={FILTER_ALL}>All</option>
               <option value="copper">Copper</option>
               <option value="fiber">Fiber</option>
               <option value="ONT">ONT</option>
@@ -254,15 +244,13 @@ function AssetsLocations() {
 
           {/* Status Filter */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Status
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
             <select
               value={selectedStatus}
               onChange={(e) => setSelectedStatus(e.target.value)}
               className="w-full border border-gray-300 rounded-lg px-3 py-2"
             >
-              <option value="All">All</option>
+              <option value={FILTER_ALL}>All</option>
               <option value="active">Active</option>
               <option value="pending">Pending</option>
               <option value="completed">Completed</option>
@@ -296,20 +284,18 @@ function AssetsLocations() {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {/* Map through filtered assets */}
               {filteredAssets.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="px-6 py-4 text-center text-gray-500">
-                    {assets.length === 0 
-                      ? 'No assets found. Upload a CSV file to get started.' 
+                    {assetsData.data.length === 0
+                      ? 'No assets found. Upload a CSV file to get started.'
                       : 'No assets match the selected filters.'}
                   </td>
                 </tr>
               ) : (
                 filteredAssets.map((asset) => {
-                  // Find associated location
-                  const location = locations.find(loc => loc.id === asset.location_id)
-                  
+                  const location = locationsData.data.find((loc) => loc.id === asset.location_id)
+
                   return (
                     <tr key={asset.id}>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
@@ -325,20 +311,7 @@ function AssetsLocations() {
                         {location?.region || 'N/A'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        {/* Color-coded status badge */}
-                        <span
-                          className={`px-2 py-1 text-xs font-semibold rounded-full ${
-                            asset.status === 'completed'
-                              ? 'bg-green-100 text-green-800'
-                              : asset.status === 'active'
-                              ? 'bg-blue-100 text-blue-800'
-                              : asset.status === 'pending'
-                              ? 'bg-yellow-100 text-yellow-800'
-                              : 'bg-red-100 text-red-800'
-                          }`}
-                        >
-                          {asset.status}
-                        </span>
+                        <StatusBadge status={asset.status} type="asset" />
                       </td>
                     </tr>
                   )
@@ -353,11 +326,10 @@ function AssetsLocations() {
       <div className="bg-white rounded-lg shadow p-6">
         <h2 className="text-xl font-semibold text-gray-900 mb-4">Location Map</h2>
         <div className="h-96 bg-gray-100 rounded-lg flex items-center justify-center relative overflow-hidden">
-          {/* Simple map visualization using coordinates */}
-          {locations.length > 0 ? (
+          {locationsData.data.length > 0 ? (
             <div className="w-full h-full p-4">
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 text-xs">
-                {locations.slice(0, 12).map((location) => (
+                {locationsData.data.slice(0, MAP_DISPLAY_LIMIT).map((location) => (
                   <div
                     key={location.id}
                     className="bg-white p-2 rounded shadow-sm border border-gray-200"
@@ -367,30 +339,26 @@ function AssetsLocations() {
                     <p className="text-gray-500 text-xs">
                       {location.coordinates.lat.toFixed(2)}, {location.coordinates.lng.toFixed(2)}
                     </p>
-                    <span className={`inline-block mt-1 px-1 py-0.5 rounded text-xs ${
-                      location.fiber_status === 'Fiber Ready'
-                        ? 'bg-green-100 text-green-800'
-                        : location.fiber_status === 'Pending Feasibility'
-                        ? 'bg-yellow-100 text-yellow-800'
-                        : 'bg-red-100 text-red-800'
-                    }`}>
-                      {location.fiber_status}
-                    </span>
+                    <StatusBadge status={location.fiber_status} type="fiber" />
                   </div>
                 ))}
               </div>
-              {locations.length > 12 && (
+              {locationsData.data.length > MAP_DISPLAY_LIMIT && (
                 <p className="text-center text-gray-500 mt-4">
-                  Showing 12 of {locations.length} locations. Use filters to narrow down.
+                  Showing {MAP_DISPLAY_LIMIT} of {locationsData.data.length} locations. Use filters to
+                  narrow down.
                 </p>
               )}
             </div>
           ) : (
-            <p className="text-gray-500">No locations to display. Upload CSV data to see locations on the map.</p>
+            <p className="text-gray-500">
+              No locations to display. Upload CSV data to see locations on the map.
+            </p>
           )}
         </div>
         <p className="text-sm text-gray-500 mt-2">
-          Note: Full interactive map with Mapbox/Leaflet integration can be added in future enhancement.
+          Note: Full interactive map with Mapbox/Leaflet integration can be added in future
+          enhancement.
         </p>
       </div>
     </div>
